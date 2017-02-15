@@ -1,2 +1,2 @@
-# atlassian-backup
-Backup scripts/managers for Atlassian Cloud services
+# jira-confluence-backup
+Backup scripts/managers for Jira and Confluence cloud services
