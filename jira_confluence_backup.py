@@ -3,45 +3,71 @@ import json
 import time
 import datetime
 from sys import stdout, exit
-import argparse, getpass
+import argparse
+import getpass
 import os
 import logging
 from logging.handlers import SysLogHandler
 
-#Argparse action extension to alternatively accept passwords directly
-#or via a prompt in the console
+# Argparse action extension to alternatively accept passwords directly
+# or via a prompt in the console
+
+
 class Password(argparse.Action):
+
     def __call__(self, parser, namespace, values, option_string):
         if values is None:
             values = getpass.getpass()
         setattr(namespace, self.dest, values)
 
+
 def set_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--instance', '-i', help='Atlassian account instance (format: account.attlassian.net)',\
-    required=True)
-    parser.add_argument('--application', '-a', help='Atlassian application to backup (Jira or Confluence)',\
-    required=True)
-    parser.add_argument('--username', '-u', help='Atlassian username used to login to the web application',\
-    required=True)
-    parser.add_argument('--timeout', '-t', help='Timeout for the remote backup to complete, defaults to 180 minutes', default=180)
-    parser.add_argument('--password', '-p', action=Password, nargs='?', dest='password', \
-    help='Atlassian password used to login into the web application', required=True)
-    parser.add_argument('--location', '-l', default='/tmp/', help='Location of resulting backup file,\
-                    defaults to \'/tmp/APPLICATION\'')
-    parser.add_argument('--tasks', nargs='+', help='Perform specified tasks\
-                        (with a space between each task): t (trigger), m (monitor) and d (download).\
+    parser.add_argument('--instance',
+                        '-i',
+                        help='Atlassian account instance (format: \
+                        account.attlassian.net)', required=True)
+    parser.add_argument('--application', '-a',
+                        help='Atlassian application to backup \
+                        (Jira or Confluence)', required=True)
+    parser.add_argument('--username', '-u',
+                        help='Atlassian username used to \
+                        login to the web application', required=True)
+    parser.add_argument('--timeout', '-t',
+                        help='Timeout for the remote backup to complete,\
+                        defaults to 180 minutes',
+                        default=180)
+    parser.add_argument('--password', '-p',
+                        action=Password,
+                        nargs='?', dest='password',
+                        help='Atlassian password used to login into the web \
+                        application',
+                        required=True)
+    parser.add_argument('--location',
+                        '-l',
+                        default='/tmp/',
+                        help='Location of resulting backup file, defaults to\
+                        \'/tmp/APPLICATION\'')
+    parser.add_argument('--tasks',
+                        nargs='+',
+                        help='Perform specified tasks (with a space between \
+                        each task): t (trigger), m (monitor) and d (download).\
                         If d add argument for file name')
-    parser.add_argument('--log', help='Enable logging', dest='log', action='store_true')
+    parser.add_argument('--log',
+                        help='Enable logging',
+                        dest='log',
+                        action='store_true')
     args = parser.parse_args()
 
-    #Ensure valid tasks where supplied
+    # Ensure valid tasks where supplied
     if args.tasks is not None:
         targs = ['t', 'm', 'd']
         if all((x not in args.tasks for x in targs)):
-            print "Error: please supply either 't' (trigger), 'm' (monitor) or d (download) with tasks"
+            print "Error: please supply either 't' (trigger), 'm' (monitor) or\
+            d (download) with tasks"
             exit(1)
     return args
+
 
 class LogMessage:
     '''
@@ -62,13 +88,15 @@ class LogMessage:
         if log:
             self._logger.info(message, extra={'tag': self._tag})
 
+
 def set_urls():
     global trigger_url
     global progress_url
     global download_url
     if application.upper() == 'CONFLUENCE':
         trigger_url = 'https://' + instance + '/wiki/rest/obm/1.0/runbackup'
-        progress_url = 'https://' + instance + '/wiki/rest/obm/1.0/getprogress.json'
+        progress_url = 'https://' + instance +\
+            '/wiki/rest/obm/1.0/getprogress.json'
         download_url = 'https://' + instance + '/wiki/download/'
         return
     if application.upper() == 'JIRA':
@@ -77,22 +105,30 @@ def set_urls():
         download_url = 'https://' + instance
         return
     if application.upper() != 'JIRA' or 'CONFLUENCE':
-        print "Invalid application specified. Request either \"Jira\" or \"Confluence\""
+        print "Invalid application specified. \
+        Request either \"Jira\" or \"Confluence\""
         exit(1)
+
 
 def create_session(username, password):
     s = requests.session()
-    #create a session
-    r = s.post('https://' + instance + '/login', {'username': username, 'password': password})
+    # create a session
+    r = s.post('https://' + instance + '/login',
+               {'username': username,
+                'password': password})
     if int(r.status_code) == 200:
         return s
     else:
         print "Session creation failed"
         exit(1)
 
+
 def trigger(s):
-    r = s.post(url=trigger_url, data=json.dumps({'cbAttachments': 'true'}), \
-        headers={'Content-Type': 'application/json', 'X-Atlassian-Token': 'no-check', 'X-Requested-With': 'XMLHttpRequest'})
+    r = s.post(url=trigger_url,
+               data=json.dumps({'cbAttachments': 'true'}),
+               headers={'Content-Type': 'application/json',
+                        'X-Atlassian-Token': 'no-check',
+                        'X-Requested-With': 'XMLHttpRequest'})
     print "Trigger response: %s" % r.status_code
     if int(r.status_code) == 200:
         print "Trigger response successful"
@@ -105,33 +141,40 @@ def trigger(s):
         result = ['Trigger failed with message: %s' % str(r.text), False]
         return result
 
+
 def monitor(s):
     r = s.get(url=progress_url)
     try:
         progress_data = json.loads(r.text)
     except ValueError:
-        print """No JSON object could be decoded - get progress failed to return expected data.
+        print """No JSON object could be decoded.
+        Get progress failed to return expected data.
         Return code: %s """ % (r.status_code)
-        result = ['No JSON object could be decoded - get progress failed to return expected data\
+        result = ['No JSON object could be decoded\
+            - get progress failed to return expected data\
         Return code: %s """ % (r.status_code)', False]
-    #Timeout waiting for remote backup to complete (since it sometimes fails) in 5s multiples
+    # Timeout waiting for remote backup to complete
+    # (since it sometimes fails) in 5s multiples
     global timeout
-    timeout_count = timeout*12 #timeout x 12 = number of iterations of 5s
+    timeout_count = timeout*12  # timeout x 12 = number of iterations of 5s
     time_left = timeout
     while 'fileName' not in progress_data or timeout_count > 0:
-        stdout.write("\r\x1b[2k") #Clears the line before re-writing to avoid artifacts
-        stdout.write("\r\x1b[2K%s. Timeout remaining: %sm" \
-            % (progress_data['alternativePercentage'], str(time_left)))
+        # Clears the line before re-writing to avoid artifacts
+        stdout.write("\r\x1b[2k")
+        stdout.write("\r\x1b[2K%s. Timeout remaining: %sm"
+                     % (progress_data['alternativePercentage'],
+                        str(time_left)))
         stdout.flush()
         r = s.get(url=progress_url)
         progress_data = json.loads(r.text)
         time.sleep(5)
         timeout_count = timeout_count - 5
-        if timeout_count%12 == 0:
+        if timeout_count % 12 == 0:
             time_left = time_left - 1
     if 'fileName' in progress_data:
         result = [progress_data['fileName'], True]
         return result
+
 
 def get_filename(s):
     print "Fetching file name"
@@ -139,7 +182,8 @@ def get_filename(s):
     try:
         progress_data = json.loads(r.text)
     except ValueError:
-        print """No JSON object could be decoded - get progress failed to return expected data.
+        print """No JSON object could be decoded.
+        Get progress failed to return expected data.
         Return code: %s """ % (r.status_code)
         return False
     if 'fileName' not in progress_data:
@@ -148,6 +192,7 @@ def get_filename(s):
     else:
         return progress_data['fileName']
 
+
 def create_backup_location(l):
     if not os.path.exists(location):
         try:
@@ -155,6 +200,7 @@ def create_backup_location(l):
         except OSError:
             return False
     return True
+
 
 def download(s, l):
     filename = get_filename(s)
@@ -177,21 +223,24 @@ def download(s, l):
                     f.write(chunk)
                     file_total = file_total + 1024
                     file_total_m = float(file_total)/1048576
-                    stdout.write("\r\x1b[2k") #Clears the line before re-writing to avoid artifacts
+                    # Clears the line before re-writing to avoid artifacts
+                    stdout.write("\r\x1b[2k")
                     stdout.write("\r\x1b[2K%.2fMB   downloaded" % file_total_m)
                     stdout.flush()
         stdout.write("\n")
         result = ['Backup downloaded successfully', True]
         return result
     else:
-        print "Download file not found on remote server - response code %s" % str(r.status_code)
+        print "Download file not found on remote server - response code %s" % \
+            str(r.status_code)
         print "Download url: %s" % download_url + filename
         result = ['Download file not found on remote server', False]
         return result
 
+
 if __name__ == "__main__":
     args = set_arguments()
-    global  trigger_url, progress_url, download_url,\
+    global trigger_url, progress_url, download_url,\
         instance, application, log, timeout
     application = args.application
     instance = args.instance + ".atlassian.net"
